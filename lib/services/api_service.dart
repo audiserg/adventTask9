@@ -1,0 +1,160 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../models/message.dart';
+
+class ApiService {
+  // В production замените на URL вашего сервера
+  static const String baseUrl = 'http://localhost:3000';
+
+  Future<Map<String, dynamic>> sendMessage(
+    List<Message> messages, {
+    double? temperature,
+    String? systemPrompt,
+    String? provider,
+    String? model,
+  }) async {
+    try {
+      // Преобразуем сообщения в формат для API
+      final messagesJson = messages
+          .map(
+            (msg) => {
+              'role': msg.isUser ? 'user' : 'assistant',
+              'content': msg.text,
+            },
+          )
+          .toList();
+
+      final requestBody = <String, dynamic>{
+        'messages': messagesJson,
+      };
+      
+      if (temperature != null) {
+        requestBody['temperature'] = temperature;
+      }
+      
+      if (systemPrompt != null && systemPrompt.isNotEmpty) {
+        requestBody['systemPrompt'] = systemPrompt;
+      }
+      
+      if (provider != null && provider.isNotEmpty) {
+        requestBody['provider'] = provider;
+      }
+      
+      if (model != null && model.isNotEmpty) {
+        requestBody['model'] = model;
+      }
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/chat'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
+          )
+          .timeout(
+            const Duration(seconds: 180),
+            onTimeout: () {
+              throw Exception('Request timeout');
+            },
+          );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        // Извлекаем ответ от ИИ
+        if (data.containsKey('choices') &&
+            (data['choices'] as List).isNotEmpty) {
+          final choice = (data['choices'] as List).first;
+          if (choice is Map<String, dynamic> && choice.containsKey('message')) {
+            final message = choice['message'] as Map<String, dynamic>;
+            final content = message['content'] as String? ?? 'No response';
+            
+            // Извлекаем информацию о токенах
+            Map<String, dynamic>? tokenUsage;
+            if (data.containsKey('tokenUsage') && data['tokenUsage'] is Map) {
+              tokenUsage = data['tokenUsage'] as Map<String, dynamic>;
+            }
+            
+            return {
+              'content': content,
+              'tokenUsage': tokenUsage,
+            };
+          }
+        }
+
+        throw Exception('Invalid response format');
+      } else if (response.statusCode == 429) {
+        // Ошибка лимита запросов
+        try {
+          final errorData = jsonDecode(response.body) as Map<String, dynamic>;
+          final message =
+              errorData['message'] as String? ??
+              'Превышен дневной лимит сообщений. Максимум 10 сообщений в день.';
+          throw Exception(message);
+        } catch (e) {
+          if (e is Exception && e.toString().contains('Превышен')) {
+            rethrow;
+          }
+          throw Exception(
+            'Превышен дневной лимит сообщений. Максимум 10 сообщений в день.',
+          );
+        }
+      } else {
+        String errorMessage = 'Failed to get response: ${response.statusCode}';
+        try {
+          final errorData = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMessage =
+              errorData['message'] as String? ??
+              errorData['error'] as String? ??
+              errorMessage;
+        } catch (_) {
+          errorMessage = '${response.statusCode}: ${response.body}';
+        }
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Network error: $e');
+    }
+  }
+
+  // Получить список доступных моделей
+  Future<Map<String, dynamic>> getAvailableModels() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/api/models'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              throw Exception('Request timeout');
+            },
+          );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return data;
+      } else {
+        String errorMessage = 'Failed to get models: ${response.statusCode}';
+        try {
+          final errorData = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMessage =
+              errorData['message'] as String? ??
+              errorData['error'] as String? ??
+              errorMessage;
+        } catch (_) {
+          errorMessage = '${response.statusCode}: ${response.body}';
+        }
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Network error: $e');
+    }
+  }
+}
