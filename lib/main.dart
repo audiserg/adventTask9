@@ -91,6 +91,16 @@ class ChatScreen extends StatelessWidget {
               );
             },
           ),
+          // Иконка настройки порога суммаризации
+          BlocBuilder<ChatBloc, ChatState>(
+            builder: (context, state) {
+              return IconButton(
+                icon: const Icon(Icons.compress),
+                tooltip: 'Настройка порога суммаризации',
+                onPressed: () => _showSummarizationThresholdDialog(context, state.summarizationThreshold),
+              );
+            },
+          ),
           BlocBuilder<ChatBloc, ChatState>(
             builder: (context, state) {
               final hasMessages = state is ChatLoaded ||
@@ -316,6 +326,71 @@ class ChatScreen extends StatelessWidget {
                     duration: const Duration(seconds: 2),
                   ),
                 );
+              },
+              child: const Text('Сохранить'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  static void _showSummarizationThresholdDialog(BuildContext context, int currentThreshold) {
+    final controller = TextEditingController(text: currentThreshold.toString());
+    // Получаем ChatBloc из правильного контекста до создания диалога
+    final chatBloc = context.read<ChatBloc>();
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Настройка порога суммаризации'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'Порог токенов (100 - 100000)',
+                  hintText: '1000',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Порог суммаризации определяет, когда автоматически суммаризировать контекст:\n'
+                '• При превышении порога старые сообщения заменяются на суммаризацию\n'
+                '• Рекомендуется: 1000-5000 токенов\n'
+                '• Меньше значение = чаще суммаризация',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final value = int.tryParse(controller.text);
+                if (value != null && value >= 100 && value <= 100000) {
+                  chatBloc.add(UpdateSummarizationThreshold(value));
+                  Navigator.of(dialogContext).pop();
+                  // Показываем подтверждение - используем оригинальный контекст
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Порог суммаризации сохранен: $value токенов'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Введите значение от 100 до 100000'),
+                    ),
+                  );
+                }
               },
               child: const Text('Сохранить'),
             ),

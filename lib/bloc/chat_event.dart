@@ -72,3 +72,12 @@ class DeleteMessage extends ChatEvent {
   @override
   List<Object?> get props => [messageIndex];
 }
+
+class UpdateSummarizationThreshold extends ChatEvent {
+  final int threshold;
+
+  const UpdateSummarizationThreshold(this.threshold);
+
+  @override
+  List<Object?> get props => [threshold];
+}

@@ -5,10 +5,12 @@ class SettingsService {
   static const String _systemPromptKey = 'system_prompt';
   static const String _providerKey = 'provider';
   static const String _modelKey = 'model';
+  static const String _summarizationThresholdKey = 'summarization_threshold';
   static const double _defaultTemperature = 0.7;
   static const String _defaultSystemPrompt = '';
   static const String _defaultProvider = 'deepseek';
   static const String _defaultModel = '';
+  static const int _defaultSummarizationThreshold = 1000;
 
   // Загрузить температуру
   static Future<double> loadTemperature() async {
@@ -124,6 +126,36 @@ class SettingsService {
     }
   }
 
+  // Загрузить порог суммаризации
+  static Future<int> loadSummarizationThreshold() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = prefs.getInt(_summarizationThresholdKey) ?? _defaultSummarizationThreshold;
+      print('SettingsService: Загружен порог суммаризации: $value');
+      return value;
+    } catch (e) {
+      print('SettingsService: Ошибка при загрузке порога суммаризации: $e');
+      return _defaultSummarizationThreshold;
+    }
+  }
+
+  // Сохранить порог суммаризации
+  static Future<bool> saveSummarizationThreshold(int threshold) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final result = await prefs.setInt(_summarizationThresholdKey, threshold);
+      print('SettingsService: Сохранен порог суммаризации $threshold, результат: $result');
+      // Дополнительная проверка - читаем обратно
+      final verify = prefs.getInt(_summarizationThresholdKey);
+      print('SettingsService: Проверка сохранения - прочитано: $verify');
+      return result;
+    } catch (e, stackTrace) {
+      print('SettingsService: Ошибка при сохранении порога суммаризации: $e');
+      print('SettingsService: Stack trace: $stackTrace');
+      return false;
+    }
+  }
+
   // Загрузить все настройки
   static Future<Map<String, dynamic>> loadAllSettings() async {
     try {
@@ -132,12 +164,14 @@ class SettingsService {
       final systemPrompt = prefs.getString(_systemPromptKey) ?? _defaultSystemPrompt;
       final provider = prefs.getString(_providerKey) ?? _defaultProvider;
       final model = prefs.getString(_modelKey) ?? _defaultModel;
-      print('SettingsService: Загружены все настройки - температура: $temperature, промпт длина: ${systemPrompt.length}, провайдер: $provider, модель: $model');
+      final summarizationThreshold = prefs.getInt(_summarizationThresholdKey) ?? _defaultSummarizationThreshold;
+      print('SettingsService: Загружены все настройки - температура: $temperature, промпт длина: ${systemPrompt.length}, провайдер: $provider, модель: $model, порог суммаризации: $summarizationThreshold');
       return {
         'temperature': temperature,
         'systemPrompt': systemPrompt,
         'provider': provider,
         'model': model,
+        'summarizationThreshold': summarizationThreshold,
       };
     } catch (e) {
       print('SettingsService: Ошибка при загрузке всех настроек: $e');
@@ -146,6 +180,7 @@ class SettingsService {
         'systemPrompt': _defaultSystemPrompt,
         'provider': _defaultProvider,
         'model': _defaultModel,
+        'summarizationThreshold': _defaultSummarizationThreshold,
       };
     }
   }

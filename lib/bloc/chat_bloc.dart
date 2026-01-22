@@ -7,6 +7,10 @@ import 'chat_state.dart';
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   final ApiService _apiService;
+  
+  // Промпт для суммаризации контекста
+  static const String _summarizationPrompt = 
+      'Суммаризируй кратко весь предыдущий контекст нашего разговора, сохранив ключевые темы, важные детали и контекст для продолжения диалога. Суммаризация должна быть краткой, но информативной.';
 
   ChatBloc({ApiService? apiService})
       : _apiService = apiService ?? ApiService(),
@@ -20,6 +24,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<UpdateModel>(_onUpdateModel);
     on<LoadModels>(_onLoadModels);
     on<DeleteMessage>(_onDeleteMessage);
+    on<UpdateSummarizationThreshold>(_onUpdateSummarizationThreshold);
     
     // Загружаем настройки при инициализации
     _initializeSettings();
@@ -210,6 +215,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final currentProvider = state.provider;
     final currentModel = state.model;
     final currentAvailableModels = state.availableModels;
+    final currentSummarizationThreshold = state.summarizationThreshold;
     
     // Переходим в состояние загрузки
     emit(ChatLoading(
@@ -220,6 +226,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       provider: currentProvider,
       model: currentModel,
       availableModels: currentAvailableModels,
+      summarizationThreshold: currentSummarizationThreshold,
     ));
 
     try {
@@ -318,6 +325,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       
       final finalMessages = [...updatedMessages, aiMessage];
 
+      // Проверяем, нужно ли суммаризировать контекст
+      if (totalTokens != null && totalTokens > currentSummarizationThreshold) {
+        print('ChatBloc: Превышен порог токенов ($totalTokens > $currentSummarizationThreshold), запускаем суммаризацию');
+        try {
+          await _summarizeContext(finalMessages, emit, currentTemperature, currentSystemPrompt, currentProvider, currentModel, currentAvailableModels, currentSummarizationThreshold);
+          return; // _summarizeContext уже обновил состояние
+        } catch (e) {
+          print('ChatBloc: Ошибка при суммаризации контекста: $e');
+          // Продолжаем с текущим контекстом при ошибке суммаризации
+        }
+      }
+
       // Переходим в состояние загружено с темой
       emit(ChatLoaded(
         finalMessages,
@@ -327,6 +346,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentProvider,
         model: currentModel,
         availableModels: currentAvailableModels,
+        summarizationThreshold: currentSummarizationThreshold,
       ));
     } catch (e) {
       // Переходим в состояние ошибки
@@ -357,6 +377,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentProvider,
         model: currentModel,
         availableModels: currentAvailableModels,
+        summarizationThreshold: currentSummarizationThreshold,
       ));
     }
   }
@@ -371,6 +392,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       provider: state.provider,
       model: state.model,
       availableModels: state.availableModels,
+      summarizationThreshold: state.summarizationThreshold,
     ));
   }
 
@@ -393,6 +415,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatLoading) {
       final currentState = state as ChatLoading;
@@ -404,6 +427,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatError) {
       final currentState = state as ChatError;
@@ -415,6 +439,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else {
       emit(ChatInitial(
@@ -423,6 +448,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: state.provider,
         model: state.model,
         availableModels: state.availableModels,
+        summarizationThreshold: state.summarizationThreshold,
       ));
     }
   }
@@ -446,6 +472,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatLoading) {
       final currentState = state as ChatLoading;
@@ -457,6 +484,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatError) {
       final currentState = state as ChatError;
@@ -468,6 +496,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else {
       emit(ChatInitial(
@@ -476,6 +505,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: state.provider,
         model: state.model,
         availableModels: state.availableModels,
+        summarizationThreshold: state.summarizationThreshold,
       ));
     }
   }
@@ -489,6 +519,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final systemPrompt = settings['systemPrompt'] as String;
     final provider = settings['provider'] as String? ?? 'deepseek';
     final model = settings['model'] as String? ?? '';
+    final summarizationThreshold = settings['summarizationThreshold'] as int? ?? 1000;
     
     if (state is ChatLoaded) {
       final currentState = state as ChatLoaded;
@@ -500,6 +531,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: provider,
         model: model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: summarizationThreshold,
       ));
     } else if (state is ChatLoading) {
       final currentState = state as ChatLoading;
@@ -511,6 +543,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: provider,
         model: model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: summarizationThreshold,
       ));
     } else if (state is ChatError) {
       final currentState = state as ChatError;
@@ -522,6 +555,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: provider,
         model: model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: summarizationThreshold,
       ));
     } else {
       emit(ChatInitial(
@@ -530,6 +564,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: provider,
         model: model,
         availableModels: state.availableModels,
+        summarizationThreshold: summarizationThreshold,
       ));
     }
   }
@@ -553,6 +588,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: event.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatLoading) {
       final currentState = state as ChatLoading;
@@ -564,6 +600,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: event.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatError) {
       final currentState = state as ChatError;
@@ -575,6 +612,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: event.provider,
         model: currentState.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else {
       emit(ChatInitial(
@@ -583,6 +621,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: event.provider,
         model: state.model,
         availableModels: state.availableModels,
+        summarizationThreshold: state.summarizationThreshold,
       ));
     }
   }
@@ -606,6 +645,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: event.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatLoading) {
       final currentState = state as ChatLoading;
@@ -617,6 +657,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: event.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else if (state is ChatError) {
       final currentState = state as ChatError;
@@ -628,6 +669,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: currentState.provider,
         model: event.model,
         availableModels: currentState.availableModels,
+        summarizationThreshold: currentState.summarizationThreshold,
       ));
     } else {
       emit(ChatInitial(
@@ -636,6 +678,64 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         provider: state.provider,
         model: event.model,
         availableModels: state.availableModels,
+        summarizationThreshold: state.summarizationThreshold,
+      ));
+    }
+  }
+
+  void _onUpdateSummarizationThreshold(
+    UpdateSummarizationThreshold event,
+    Emitter<ChatState> emit,
+  ) async {
+    print('ChatBloc: Обновление порога суммаризации на ${event.threshold}');
+    // Сохраняем настройку
+    final saved = await SettingsService.saveSummarizationThreshold(event.threshold);
+    print('ChatBloc: Порог суммаризации сохранен: $saved');
+    
+    if (state is ChatLoaded) {
+      final currentState = state as ChatLoaded;
+      emit(ChatLoaded(
+        currentState.messages,
+        currentTopic: currentState.currentTopic,
+        temperature: currentState.temperature,
+        systemPrompt: currentState.systemPrompt,
+        provider: currentState.provider,
+        model: currentState.model,
+        availableModels: currentState.availableModels,
+        summarizationThreshold: event.threshold,
+      ));
+    } else if (state is ChatLoading) {
+      final currentState = state as ChatLoading;
+      emit(ChatLoading(
+        currentState.messages,
+        currentTopic: currentState.currentTopic,
+        temperature: currentState.temperature,
+        systemPrompt: currentState.systemPrompt,
+        provider: currentState.provider,
+        model: currentState.model,
+        availableModels: currentState.availableModels,
+        summarizationThreshold: event.threshold,
+      ));
+    } else if (state is ChatError) {
+      final currentState = state as ChatError;
+      emit(ChatError(
+        currentState.messages,
+        currentState.error,
+        temperature: currentState.temperature,
+        systemPrompt: currentState.systemPrompt,
+        provider: currentState.provider,
+        model: currentState.model,
+        availableModels: currentState.availableModels,
+        summarizationThreshold: event.threshold,
+      ));
+    } else {
+      emit(ChatInitial(
+        temperature: state.temperature,
+        systemPrompt: state.systemPrompt,
+        provider: state.provider,
+        model: state.model,
+        availableModels: state.availableModels,
+        summarizationThreshold: event.threshold,
       ));
     }
   }
@@ -659,6 +759,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: currentState.provider,
           model: currentState.model,
           availableModels: modelsData,
+          summarizationThreshold: currentState.summarizationThreshold,
         ));
       } else if (state is ChatLoading) {
         final currentState = state as ChatLoading;
@@ -670,6 +771,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: currentState.provider,
           model: currentState.model,
           availableModels: modelsData,
+          summarizationThreshold: currentState.summarizationThreshold,
         ));
       } else if (state is ChatError) {
         final currentState = state as ChatError;
@@ -681,6 +783,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: currentState.provider,
           model: currentState.model,
           availableModels: modelsData,
+          summarizationThreshold: currentState.summarizationThreshold,
         ));
       } else {
         emit(ChatInitial(
@@ -689,6 +792,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: state.provider,
           model: state.model,
           availableModels: modelsData,
+          summarizationThreshold: state.summarizationThreshold,
         ));
       }
     } catch (e) {
@@ -735,6 +839,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: state.provider,
           model: state.model,
           availableModels: state.availableModels,
+          summarizationThreshold: state.summarizationThreshold,
         ));
       } else if (state is ChatLoading) {
         emit(ChatLoading(
@@ -745,6 +850,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: state.provider,
           model: state.model,
           availableModels: state.availableModels,
+          summarizationThreshold: state.summarizationThreshold,
         ));
       } else if (state is ChatError) {
         emit(ChatError(
@@ -755,6 +861,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: state.provider,
           model: state.model,
           availableModels: state.availableModels,
+          summarizationThreshold: state.summarizationThreshold,
         ));
       } else {
         emit(ChatInitial(
@@ -763,8 +870,99 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           provider: state.provider,
           model: state.model,
           availableModels: state.availableModels,
+          summarizationThreshold: state.summarizationThreshold,
         ));
       }
+    }
+  }
+
+  // Суммаризация контекста
+  Future<void> _summarizeContext(
+    List<Message> messages,
+    Emitter<ChatState> emit,
+    double temperature,
+    String systemPrompt,
+    String provider,
+    String model,
+    Map<String, dynamic>? availableModels,
+    int summarizationThreshold,
+  ) async {
+    try {
+      print('ChatBloc: Начинаем суммаризацию контекста (${messages.length} сообщений)');
+      
+      // Формируем промпт для суммаризации со всем текущим контекстом
+      final contextText = messages
+          .map((msg) => '${msg.isUser ? "Пользователь" : "Ассистент"}: ${msg.text}')
+          .join('\n\n');
+      
+      final summarizationRequest = '$_summarizationPrompt\n\nКонтекст разговора:\n$contextText';
+      
+      // Создаем сообщение для суммаризации
+      final summarizationMessages = [
+        Message(
+          text: summarizationRequest,
+          isUser: true,
+        ),
+      ];
+      
+      // Отправляем запрос на суммаризацию
+      final responseData = await _apiService.sendMessage(
+        summarizationMessages,
+        temperature: temperature,
+        systemPrompt: systemPrompt.isNotEmpty ? systemPrompt : null,
+        provider: provider,
+        model: model.isNotEmpty ? model : null,
+      );
+      
+      // Извлекаем текст суммаризации
+      final summarizationText = responseData['content'] as String;
+      
+      print('ChatBloc: Получена суммаризация (${summarizationText.length} символов)');
+      
+      // Парсим ответ суммаризации
+      final parsed = _parseResponse(summarizationText);
+      final topic = parsed['topic'] as String?;
+      String body = parsed['body'] as String;
+      final emotion = parsed['emotion'] as Emotion?;
+      
+      // Убираем "QUESTION:" из начала текста, если оно есть
+      body = body.replaceFirst(RegExp(r'^QUESTION:\s*', caseSensitive: false), '').trim();
+      
+      // Если body не распарсился, используем весь ответ
+      if (body.isEmpty || body == summarizationText) {
+        body = summarizationText;
+        body = body.replaceFirst(RegExp(r'^QUESTION:\s*', caseSensitive: false), '').trim();
+      }
+      
+      // Создаем сообщение с суммаризацией
+      final summarizationMessage = Message(
+        text: summarizationText,
+        isUser: false,
+        topic: topic,
+        body: body,
+        emotion: emotion,
+        temperature: temperature,
+      );
+      
+      // Заменяем все старые сообщения на суммаризацию
+      final summarizedMessages = [summarizationMessage];
+      
+      print('ChatBloc: Контекст суммаризирован. Старых сообщений: ${messages.length}, после суммаризации: ${summarizedMessages.length}');
+      
+      // Обновляем состояние с суммаризацией
+      emit(ChatLoaded(
+        summarizedMessages,
+        currentTopic: topic,
+        temperature: temperature,
+        systemPrompt: systemPrompt,
+        provider: provider,
+        model: model,
+        availableModels: availableModels,
+        summarizationThreshold: summarizationThreshold,
+      ));
+    } catch (e) {
+      print('ChatBloc: Ошибка при суммаризации контекста: $e');
+      rethrow; // Пробрасываем ошибку, чтобы _onSendMessage мог обработать её
     }
   }
 

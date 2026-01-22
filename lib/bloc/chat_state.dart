@@ -7,6 +7,7 @@ abstract class ChatState extends Equatable {
   final String provider;
   final String model;
   final Map<String, dynamic>? availableModels;
+  final int summarizationThreshold;
 
   const ChatState({
     this.temperature = 0.7,
@@ -14,10 +15,11 @@ abstract class ChatState extends Equatable {
     this.provider = 'deepseek',
     this.model = '',
     this.availableModels,
+    this.summarizationThreshold = 1000,
   });
 
   @override
-  List<Object?> get props => [temperature, systemPrompt, provider, model, availableModels];
+  List<Object?> get props => [temperature, systemPrompt, provider, model, availableModels, summarizationThreshold];
 }
 
 class ChatInitial extends ChatState {
@@ -27,6 +29,7 @@ class ChatInitial extends ChatState {
     super.provider,
     super.model,
     super.availableModels,
+    super.summarizationThreshold,
   });
 }
 
@@ -42,10 +45,11 @@ class ChatLoading extends ChatState {
     super.provider,
     super.model,
     super.availableModels,
+    super.summarizationThreshold,
   });
 
   @override
-  List<Object?> get props => [messages, currentTopic, temperature, systemPrompt, provider, model, availableModels];
+  List<Object?> get props => [messages, currentTopic, temperature, systemPrompt, provider, model, availableModels, summarizationThreshold];
 }
 
 class ChatLoaded extends ChatState {
@@ -60,10 +64,11 @@ class ChatLoaded extends ChatState {
     super.provider,
     super.model,
     super.availableModels,
+    super.summarizationThreshold,
   });
 
   @override
-  List<Object?> get props => [messages, currentTopic, temperature, systemPrompt, provider, model, availableModels];
+  List<Object?> get props => [messages, currentTopic, temperature, systemPrompt, provider, model, availableModels, summarizationThreshold];
 }
 
 class ChatError extends ChatState {
@@ -78,8 +83,9 @@ class ChatError extends ChatState {
     super.provider,
     super.model,
     super.availableModels,
+    super.summarizationThreshold,
   });
 
   @override
-  List<Object?> get props => [messages, error, temperature, systemPrompt, provider, model, availableModels];
+  List<Object?> get props => [messages, error, temperature, systemPrompt, provider, model, availableModels, summarizationThreshold];
 }
